@@ -99,3 +99,29 @@ Note that handling the event forks the control flow and makes the script harder 
 :::note
 For uploading files, see the [uploading files](./input.md#upload-files) section.
 :::
+
+## Anchor downloads and request interception
+
+In Chromium and WebKit, clicking an `<a download>` link for a same-origin URL takes a renderer fast-path: the request is promoted to a browser-process download and never reaches the renderer's network flow. As a result, neither [`method: Page.route`] / [`method: BrowserContext.route`] handlers nor service worker `fetch` handlers see the request. Firefox routes the request through the normal navigation path and the service worker can intercept it. See [issue #38585](https://github.com/microsoft/playwright/issues/38585).
+
+If you need to intercept the download with a service worker on Chromium / WebKit, trigger it via a hidden iframe whose navigation the service worker responds to with `Content-Disposition: attachment`. The renderer treats the iframe load as a normal navigation, the service worker intercepts it, and the resulting response is converted into a download. This is the same approach [StreamSaver.js](https://github.com/jimmywarting/StreamSaver.js) uses, and it preserves streaming (no need to buffer the response in memory):
+
+```js
+// Page code — assumes a service worker is registered with a fetch handler for `url`.
+const iframe = document.createElement('iframe');
+iframe.style.display = 'none';
+iframe.src = url;
+document.body.appendChild(iframe);
+```
+
+A heavier-weight alternative that also works for [`method: Page.route`] interception is to fetch the resource explicitly in page script and create a blob-backed anchor, at the cost of buffering the whole response:
+
+```js
+const response = await fetch(url);  // goes through service worker / page.route()
+const blob = await response.blob();
+const a = document.createElement('a');
+a.href = URL.createObjectURL(blob);
+a.download = 'filename.bin';
+a.click();
+URL.revokeObjectURL(a.href);
+```

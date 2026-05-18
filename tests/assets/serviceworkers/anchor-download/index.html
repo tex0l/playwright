@@ -1,0 +1,17 @@
+<script>
+  window.swReady = (async () => {
+    await navigator.serviceWorker.register('sw.js');
+    await navigator.serviceWorker.ready;
+    if (navigator.serviceWorker.controller)
+      return;
+    await new Promise(resolve => navigator.serviceWorker.addEventListener('controllerchange', resolve, { once: true }));
+  })();
+  function triggerIframe() {
+    const iframe = document.createElement('iframe');
+    iframe.style.display = 'none';
+    iframe.src = 'payload';
+    document.body.appendChild(iframe);
+  }
+</script>
+<a id="dl" href="payload" download="payload.bin">download</a>
+<button id="dl-iframe" onclick="triggerIframe()">iframe</button>

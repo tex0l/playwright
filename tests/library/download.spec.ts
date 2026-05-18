@@ -739,6 +739,52 @@ it('should download successfully when routing', async ({ browser, server }) => {
   await page.close();
 });
 
+it('should route anchor-initiated download through service worker', async ({ browser, server }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/38585' });
+  // Calling Browser.setDownloadBehavior (which Playwright does for every context with
+  // acceptDownloads: true) puts Chromium into a DevTools-managed download mode where same-origin
+  // <a download> clicks fast-path to the browser-process DownloadManager, bypassing the renderer's
+  // network flow. The service worker fetch handler is skipped and no Network.requestWillBeSent
+  // fires. Firefox routes the request through the navigation path and the SW intercepts it.
+  const page = await browser.newPage();
+  // Network response — the test asserts the SW intercepts, so the network body must be distinguishable.
+  server.setRoute('/serviceworkers/anchor-download/payload', (req, res) => {
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', 'attachment; filename="from-network.bin"');
+    res.end('from-network');
+  });
+  await page.goto(server.PREFIX + '/serviceworkers/anchor-download/index.html');
+  await page.evaluate(() => window['swReady']);
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.click('#dl'),
+  ]);
+  expect(fs.readFileSync(await download.path()).toString()).toBe('from-sw');
+  await page.close();
+});
+
+it('should route iframe-initiated download through service worker', async ({ browser, server }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/38585' });
+  // Iframe-initiated downloads (the StreamSaver.js pattern) preserve service worker
+  // interception even on Chromium and WebKit: the iframe load is a normal navigation, so
+  // the renderer has no a-priori knowledge that it will become a download, and the SW gets
+  // first dibs. Documents the supported workaround for the <a download> bypass above.
+  const page = await browser.newPage();
+  server.setRoute('/serviceworkers/anchor-download/payload', (req, res) => {
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', 'attachment; filename="from-network.bin"');
+    res.end('from-network');
+  });
+  await page.goto(server.PREFIX + '/serviceworkers/anchor-download/index.html');
+  await page.evaluate(() => window['swReady']);
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.click('#dl-iframe'),
+  ]);
+  expect(fs.readFileSync(await download.path()).toString()).toBe('from-sw');
+  await page.close();
+});
+
 async function assertDownloadToPDF(download: Download, filePath: string) {
   expect(download.suggestedFilename()).toBe(path.basename(filePath));
   const stream = await download.createReadStream();
